@@ -5,7 +5,11 @@
   "license": "MIT",
   "dependencies": {
     "bookshelf": "^0.10.4",
+    "bookshelf-secure-password": "^3.0.1",
     "knex": "^0.13.0",
-    "koa": "^2.3.0"
+    "koa": "^2.3.0",
+    "koa-bodyparser": "^4.2.0",
+    "koa-router": "^7.2.1",
+    "pg": "^7.3.0"
   }
 }

@@ -1,0 +1,12 @@
+pgsql:
+  restart: always
+  image: sameersbn/postgresql:9.6-2
+  ports:
+    - "5432:5432"
+  environment:
+    - DEBUG=false
+    - DB_USER=koauth2
+    - DB_PASS=koauth2
+    - DB_NAME=koauth2
+  volumes:
+    - ./data:/var/lib/postgresql

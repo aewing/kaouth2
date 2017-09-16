@@ -1,4 +1,4 @@
-const uuid = require("uuid/v4");
+const uuidv4 = require("uuid/v4");
 const moment = require("moment");
 
 /**
@@ -7,16 +7,16 @@ const moment = require("moment");
  */
 async function getClient(ctx, Client) {
   let client_id, client_secret;
-  if (ctx.request.body.client_id) {
+  if (ctx.request.body && ctx.request.body.client_id) {
     client_id = ctx.request.body.client_id;
-  } else if (ctx.query.client_id) {
-    client_id = ctx.query.client_id;
+  } else if (ctx.request.query && ctx.request.query.client_id) {
+    client_id = ctx.request.query.client_id;
   }
 
-  if (ctx.request.body.client_secret) {
+  if (ctx.request.body && ctx.request.body.client_secret) {
     client_secret = ctx.request.body.client_secret;
-  } else if (ctx.query.client_secret) {
-    client_secret = ctx.query.client_secret;
+  } else if (ctx.request.query && ctx.request.query.client_secret) {
+    client_secret = ctx.request.query.client_secret;
   }
 
   if (client_id && client_secret) {
@@ -26,8 +26,7 @@ async function getClient(ctx, Client) {
     }).fetch();
 
     if (!ctx.client) {
-      ctx.body = "Invalid client_id or client_secret";
-      return;
+      throw "Invalid client_id or client_secret";
     }
   }
 }
@@ -49,68 +48,116 @@ module.exports = function(options = {}) {
     throw "KOAuth2: Client model is required";
   }
 
-  return async (ctx, next) => {
-    // Attempt to extract the client from context
-    getClient(ctx, options.models.client);
+  return {
+    required: async function(ctx, next) {
+      let tkn = ctx.request.headers.authorization
+        ? ctx.request.headers.authorization
+            .replace("Bearer ", "")
+            .replace("bearer ", "")
+        : "";
 
-    // Register the token authorization middleware
-    ctx.authorize = async function(ctx) {
-      let token = await options.models.token
-        .where({
-          token: ctx.request.token
-        })
-        .fetch();
-
-      if (!token) {
-        throw "ERR_INVALID_TOKEN";
+      if (!tkn.length) {
+        throw "Invalid authorization token";
       }
 
-      if (token.expires_at < moment()) {
-        token.destroy();
-        throw "ERR_TOKEN_EXPIRED";
+      let token = await options.models.token
+        .where({
+          token: tkn
+        })
+        .fetch();
+      if (!token) {
+        throw "Auth token not found (" + tkn + ")";
       }
 
       let user = await options.models.user
         .where({
-          id: token.user_id
+          id: token.attributes.user_id
         })
         .fetch();
-
       if (!user) {
-        throw "ERR_INVALID_USER";
+        throw "User not found for auth token";
       }
 
-      return user;
-    };
+      ctx.token = token;
+      ctx.user = user;
 
-    ctx.login = async function(email, password) {
-      if (!ctx.client) {
-        ctx.body = "Invalid client_id or client_secret";
-        return;
-      }
+      await next();
+    },
+    middleware: async function(ctx, next) {
+      // Attempt to extract the client from context
+      await getClient(ctx, options.models.client);
 
-      let user = await options.models.user.authenticate(email, password);
-
-      if (!user) {
-        throw "ERR_INVALID_CREDENTIALS";
-      } else {
-        // Generate a new token
-        let tkn = uuidv4();
-        let token = await options.models.token.forge({
-          user_id: user.id,
-          client_id: client.id,
-          expires_at: moment(3600),
-          token: tkn
-        });
+      // Register the token authorization middleware
+      ctx.authorize = async function(ctx) {
+        let token = await options.models.token
+          .where({
+            token: ctx.request.token
+          })
+          .fetch();
 
         if (!token) {
-          throw "ERR_TOKEN_FAILED";
+          throw "ERR_INVALID_TOKEN";
         }
 
-        return { user, token };
-      }
+        if (token.expires_at < moment()) {
+          token.destroy();
+          throw "ERR_TOKEN_EXPIRED";
+        }
 
-      throw "ERR_UNKNOWN";
-    };
+        let user = await options.models.user
+          .where({
+            id: token.user_id
+          })
+          .fetch();
+
+        if (!user) {
+          throw "ERR_INVALID_USER";
+        }
+
+        return user;
+      };
+
+      ctx.login = async function(email, password) {
+        if (!ctx.client) {
+          throw "Invalid client_id or client_secret";
+        }
+
+        let user = await options.models.user.where({ email }).fetch();
+        if (!user) {
+          throw "ERR_INVALID_EMAIL";
+        }
+
+        let authed = user.authenticate(password);
+        if (!authed) {
+          throw "ERR_INVALID_PASSWORD";
+        } else {
+          // Generate a new token
+          let tkn = uuidv4();
+          let token = await options.models.token
+            .forge({
+              user_id: user.id,
+              client_id: ctx.client.id,
+              expires_at: moment(3600),
+              token: tkn
+            })
+            .save();
+
+          if (!token) {
+            throw "ERR_TOKEN_FAILED";
+          }
+
+          let res = {
+            access_token: token.attributes.token,
+            expires_at: token.attributes.expires_at,
+            user_id: user.attributes.id
+          };
+          return res;
+        }
+
+        throw "ERR_UNKNOWN";
+      };
+
+      await next();
+    }
   };
 };
