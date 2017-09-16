@@ -57,7 +57,7 @@ module.exports = function(options = {}) {
         : "";
 
       if (!tkn.length) {
-        throw "Invalid authorization token";
+        ctx.throw(401, "Invalid authorization token");
       }
 
       let token = await options.models.token
@@ -66,7 +66,7 @@ module.exports = function(options = {}) {
         })
         .fetch();
       if (!token) {
-        throw "Auth token not found (" + tkn + ")";
+        ctx.throw(401, "Invalid authorization token");
       }
 
       let user = await options.models.user
@@ -75,7 +75,7 @@ module.exports = function(options = {}) {
         })
         .fetch();
       if (!user) {
-        throw "User not found for auth token";
+        ctx.throw(401, "User not found");
       }
 
       ctx.token = token;
